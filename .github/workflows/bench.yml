@@ -53,4 +53,41 @@ concurrency:
           run: |
             {for i in {1..${{steps.settings.outputs.benchmark_repetitions}}}; do go test .fvm ./engine/execution/computation --bench . --tags relic -shuffle+on --benchmem --run ^$; done) | tee old.txt
             
-        # see
+        # see https://trstringer.com/github-actions-multiline-strings/ to see why this part is complex
+        - name: Use benchstate for comparison
+          run: |
+            export PATH=$PATH:$(go env GOPATH)/bin
+            go install golang.org/x/perf/cmd/benchstat@latest
+            echo "BENCHSTAT<<EOF" >> $GITHUB_ENV
+            echo "$(benchstat -html -sort delta old.txt new.txt | sed '/<title/,/<\/style>/d' | sed 's/<!doctype html>/
+            echo "EOF" >> $GITHUB_ENV
+
+        - name: Find existing comment on PR
+          uses: peter-evans/find-comment@v1
+          id: fc
+          with:
+            issue-number: ${{ github.event.pull_request.number}}
+            comment-author: "github-actions[bot]"
+            body-includes: "## FVM [Benchstat](https://pkg.go.dev/golang.org/x/perf/cmd/benchstat) comparison"
+
+          - name: Create or update comment
+            uses: peter-evans/create-or-update-comment@v1
+            with:
+              comment-id: ${{steps.fc.outputs.comment-id}}
+              issue-number: ${{github.event.pull_request.number}}
+              body: |
+                ## FVM [Benchstat](https://pkg.go.dev/golang.org/x/perf/cmd/benchstat) comparison
+                
+                This branch compared with the base branch ${{github.event.pull_request.base.label}} commit ${{ github.event.pull_request.base.sha}}
+                
+                The command (for i in{1..${{steps.settings.outputs.benchmark.reptitions}}}; do go test ./fvm ./engine/execution/computation --bench . --tags relic -shuffle=on --benchmem --run ^$;
+                done) was used.
+                
+                <details>
+                <summary> COllapsed results for better readability</summary>
+                <p>
+                ${{env.BENCHSTAT}}
+                </p>
+                </details>
+
+              edit-mode: replace
